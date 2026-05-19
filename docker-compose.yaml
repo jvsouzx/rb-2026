@@ -15,8 +15,10 @@ services:
           cpus: "0.10"
           memory: 50MB
   app:
-    image: traefik/whoami
-    command: --port 8080
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: rb-2026-app
     deploy:
       replicas: 2
       resources:

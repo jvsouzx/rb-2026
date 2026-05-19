@@ -1,0 +1,7 @@
+.git
+build
+.cache
+.vscode
+.idea
+Dockerfile
+docker-compose.yaml
