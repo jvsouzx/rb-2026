@@ -43,8 +43,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=build /src/build/rb_2026 ./rb_2026
+COPY --from=build /src/build/fraud_api ./fraud_api
 
 EXPOSE 8080
 
-CMD ["./rb_2026"]
+CMD ["./fraud_api"]
