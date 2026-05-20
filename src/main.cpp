@@ -1,6 +1,8 @@
+#include "vectorize.hpp"
 #include <uwebsockets/App.h>
 #include <iostream>
 #include <string>
+#include <nlohmann/json.hpp>
 
 int main(){
 
@@ -21,10 +23,14 @@ int main(){
             body.append(chunk.data(), chunk.size());
 
             if (isLast){
-                std::cout << "Payload recebido:\n" << body << "\n";
+                std::array<float, 14> normalizedVector = vectorizeTransaction(body);
+
+                nlohmann::json response;
+                response["vector"] = normalizedVector;
+
                 res->writeStatus("200 OK");
                 res->writeHeader("content-type", "application/json");
-                res->end(R"({"approved":true,"fraud_score":0.0})");
+                res->end(response.dump());
             }
         });
     });

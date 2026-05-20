@@ -43,6 +43,7 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
+COPY resources ./resources
 COPY --from=build /src/build/fraud_api ./fraud_api
 
 EXPOSE 8080

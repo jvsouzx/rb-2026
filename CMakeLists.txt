@@ -10,6 +10,7 @@ find_package(nlohmann_json CONFIG REQUIRED)
 
 add_executable(fraud_api
     src/main.cpp
+    src/vectorize.cpp
 )
 
 target_link_libraries(fraud_api
