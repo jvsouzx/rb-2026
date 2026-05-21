@@ -65,17 +65,47 @@ std::array<float, 14> vectorizeTransaction(std::string_view body) {
     std::array<float, 14> vector{};
 
     float transactionAmount = payload["transaction"]["amount"].get<float>();
+    vector[0] = normalize(transactionAmount, 10000.0f);
+
     int transactionInstallments = payload["transaction"]["installments"].get<int>();
+    vector[1] = normalize(transactionInstallments, 12.0f);
+
     std::string transactionRequestedAt = payload["transaction"]["requested_at"].get<std::string>();
+    vector[3] = hourOfDay(transactionRequestedAt) / 23.0f;
+    vector[4] = dayOfWeek(transactionRequestedAt) / 6.0f;
+
     float customerAvgAmount = payload["customer"]["avg_amount"].get<float>();
+    vector[2] = std::clamp((transactionAmount / customerAvgAmount)/10.0f, 0.0f, 1.0f);
+
     int customerTxCount24h = payload["customer"]["tx_count_24h"].get<int>();
+    vector[8] = normalize(customerTxCount24h, 20.0f);
+
     std::vector<std::string> customerKnownMerchants = payload["customer"]["known_merchants"].get<std::vector<std::string>>();
     std::string merchantId = payload["merchant"]["id"].get<std::string>();
+    bool merchantIsKnown = std::find(customerKnownMerchants.begin(), customerKnownMerchants.end(), merchantId) != customerKnownMerchants.end();
+    vector[11] = merchantIsKnown ? 0.0f : 1.0f;
+
     std::string merchantMcc = payload["merchant"]["mcc"].get<std::string>();
+    std::ifstream file("resources/mcc_risk.json");
+    json mccRisk = json::parse(file);
+    float risk = 0.5f;
+    if (mccRisk.contains(merchantMcc)) {
+        risk = mccRisk[merchantMcc].get<float>();
+    }
+    vector[12] = risk;
+
     float merchantAvgAmount = payload["merchant"]["avg_amount"].get<float>();
+    vector[13] = normalize(merchantAvgAmount, 10000.0f);
+
     bool terminalIsOnline = payload["terminal"]["is_online"].get<bool>();
+    vector[9] = terminalIsOnline ? 1.0f : 0.0f;
+
     bool terminalCardPresent = payload["terminal"]["card_present"].get<bool>();
+    vector[10] = terminalCardPresent ? 1.0f : 0.0f;
+
     float terminalKmFromHome = payload["terminal"]["km_from_home"].get<float>();
+    vector[7] = normalize(terminalKmFromHome, 1000.0f);
+
     json lastTransaction = payload["last_transaction"];
     
     if (lastTransaction.is_null()){
@@ -90,34 +120,5 @@ std::array<float, 14> vectorizeTransaction(std::string_view body) {
         vector[5] = normalize(minutes, 1440.0f);
         vector[6] = normalize(lastTransactionKmFromCurrent, 1000.0f);
     }
-
-    bool merchantIsKnown = std::find(
-            customerKnownMerchants.begin(),
-            customerKnownMerchants.end(),
-            merchantId
-        ) != customerKnownMerchants.end();
-    
-    std::ifstream file("resources/mcc_risk.json");
-    json mccRisk = json::parse(file);
-
-    float risk = 0.5f;
-
-    if (mccRisk.contains(merchantMcc)) {
-        risk = mccRisk[merchantMcc].get<float>();
-    }
-
-    vector[0] = normalize(transactionAmount, 10000.0f);
-    vector[1] = normalize(transactionInstallments, 12.0f);
-    vector[2] = std::clamp((transactionAmount / customerAvgAmount)/10.0f, 0.0f, 1.0f);
-    vector[3] = hourOfDay(transactionRequestedAt) / 23.0f;
-    vector[4] = dayOfWeek(transactionRequestedAt) / 6.0f;
-    vector[7] = normalize(terminalKmFromHome, 1000.0f);
-    vector[8] = normalize(customerTxCount24h, 20.0f);
-    vector[9] = terminalIsOnline ? 1.0f : 0.0f;
-    vector[10] = terminalCardPresent ? 1.0f : 0.0f;
-    vector[11] = merchantIsKnown ? 0.0f : 1.0f;
-    vector[12] = risk;
-    vector[13] = normalize(merchantAvgAmount, 10000.0f);
-
     return vector;
 }
