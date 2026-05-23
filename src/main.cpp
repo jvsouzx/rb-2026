@@ -1,4 +1,5 @@
 #include "vectorize.hpp"
+#include "vectorSearch.hpp"
 #include <uwebsockets/App.h>
 #include <iostream>
 #include <string>
@@ -24,9 +25,11 @@ int main(){
 
             if (isLast){
                 std::array<float, 14> normalizedVector = vectorizeTransaction(body);
+                FraudScoreResult fraudScoreResult = transactionIsApproved(normalizedVector);
 
                 nlohmann::json response;
-                response["vector"] = normalizedVector;
+                response["approved"] = fraudScoreResult.approved;
+                response["fraud_score"] = fraudScoreResult.fraudScore;
 
                 res->writeStatus("200 OK");
                 res->writeHeader("content-type", "application/json");
