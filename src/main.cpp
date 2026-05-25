@@ -6,6 +6,7 @@
 #include <nlohmann/json.hpp>
 
 int main(){
+    getReferences();
 
     uWS::App app;
 

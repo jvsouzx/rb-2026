@@ -1,59 +1,62 @@
 #include "vectorSearch.hpp"
+#include <cstdint>
+#include <stdexcept>
 #include <fstream>
 #include <iostream>
-#include <nlohmann/json.hpp>
 #include <cmath>
 
-using json = nlohmann::json;
+namespace {
+    constexpr std::uint32_t ReferencesMagic = 0x31464252;
+    constexpr int VectorDimensions = 14;
+}
 
-std::vector<Reference> loadReferences(const std::string& path){
-    // retorna um vetor com as referências carregadas
-    // abordagem inicial (não otimizada para o cenário com 3M de refs)
-
-    // 1. abre o arquivo
-    // 2. faz o parse do JSON
-    // 3. percorre cada entrada do array
-    // 4. le o campo "vector" e copia para std::array<float, 14>
-    // 5. le o campo "label" e converte para bool fraud
-    // 6. cria um Reference com vector + fraud
-    // 7. armazena no std::vector<Reference>
-    // 8. retorna o vetor
-
-    std::ifstream file(path);
-    json jsonFile = json::parse(file);
-    std::vector<Reference> references = {};
-
-    for (const auto& item:jsonFile) {
-        const auto& jsonVector = item["vector"];
-        std::string label = item["label"];
-
-        std::array<float, 14> vector = jsonVector;
-        bool fraud = label == "fraud";
-
-        Reference ref = {};
-
-        ref.vector = vector;
-        ref.fraud = fraud;
-
-        references.insert(references.end(), ref);
+ReferenceStore loadBinaryReferences(const std::string& path){
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("Erro ao abrir " + path);
     }
+
+    std::uint32_t magic = 0;
+    std::uint32_t count = 0;
+
+    file.read(reinterpret_cast<char*>(&magic), sizeof(magic));
+    file.read(reinterpret_cast<char*>(&count), sizeof(count));
+
+    if (!file || magic != ReferencesMagic) {
+        throw std::runtime_error("Arquivo de referencias binario invalido: " + path);
+    }
+
+    ReferenceStore store;
+    store.count = count;
+    store.vectors.resize(static_cast<std::size_t>(count) * VectorDimensions);
+    store.labels.resize(count);
+
+    for (std::uint32_t i = 0; i < count; ++i) {
+        float* vector = &store.vectors[static_cast<std::size_t>(i) * VectorDimensions];
+        file.read(reinterpret_cast<char*>(vector), sizeof(float) * VectorDimensions);
+        file.read(reinterpret_cast<char*>(&store.labels[i]), sizeof(std::uint8_t));
+
+        if (!file) {
+            throw std::runtime_error("Erro ao ler referencia binaria em " + path);
+        }
+    }
+
+    std::cout << "Carregadas " << store.count << " referencias binarias\n";
+    return store;
+}
+
+const ReferenceStore& getReferences(){
+    static const ReferenceStore references = loadBinaryReferences("resources/references.bin");
     return references;
 }
 
-const std::vector<Reference>& getReferences(){
-    // se não carregou, carrega as referências e mantém em memória
-    static const std::vector<Reference> references = loadReferences("resources/example-references.json");
-    return references;
-}
-
-float euclideanDistance(const std::array<float, 14>& queryVector, const std::array<float, 14>& referenceVector) {
-
+float euclideanDistance(const std::array<float, 14>& queryVector, const float* referenceVector) {
     float distance = 0.0f;
-    for (int i = 0; i < 14; i++){
+    for (int i = 0; i < VectorDimensions; i++){
         float diff = (referenceVector[i] - queryVector[i]);
         distance += diff * diff;
     }
-    return std::sqrt(distance);
+    return distance;
 }
 
 std::array<bool, 5> kNearestNeighbor(const std::array<float, 14>& queryVector){
@@ -63,12 +66,13 @@ std::array<bool, 5> kNearestNeighbor(const std::array<float, 14>& queryVector){
     //      se distance estiver entre as 5 menores:
     //          guardar Neighbor{distance, ref.fraud}
     // retornar os 5 menores
-    const auto& refs = getReferences();
+    const ReferenceStore& refs = getReferences();
     std::priority_queue<Neighbor, std::vector<Neighbor>, CompareNeighbor> nearest;
 
-    for (const auto& ref : refs){
-        float distance = euclideanDistance(queryVector, ref.vector);
-        Neighbor candidate{distance, ref.fraud};
+    for (std::uint32_t i = 0; i < refs.count; ++i){
+        const float* vector = &refs.vectors[static_cast<std::size_t>(i) * VectorDimensions];
+        float distance = euclideanDistance(queryVector, vector);
+        Neighbor candidate{distance, refs.labels[i] == 1};
         if (nearest.size() < 5) {
             nearest.push(candidate);
         } else if (candidate.distance < nearest.top().distance) {

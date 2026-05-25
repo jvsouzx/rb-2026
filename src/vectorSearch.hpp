@@ -2,13 +2,15 @@
 #define VECTORSEARCH_HPP
 
 #include <array>
+#include <cstdint>
 #include <vector>
 #include <string>
 #include <queue>
 
-struct Reference {
-    std::array<float, 14> vector;
-    bool fraud;
+struct ReferenceStore {
+    std::uint32_t count;
+    std::vector<float> vectors;
+    std::vector<std::uint8_t> labels;
 };
 
 struct Neighbor {
@@ -29,8 +31,8 @@ struct FraudScoreResult {
 
 std::array<bool, 5> kNearestNeighbor(const std::array<float, 14>& queryVector);
 FraudScoreResult transactionIsApproved(const std::array<float, 14>& queryVector);
-const std::vector<Reference>& getReferences();
-std::vector<Reference> loadReferences(const std::string& path);
-float euclideanDistance(const std::array<float, 14>& queryVector, const std::array<float, 14>& referenceVector);
+const ReferenceStore& getReferences();
+ReferenceStore loadBinaryReferences(const std::string& path);
+float euclideanDistance(const std::array<float, 14>& queryVector, const float* referenceVector);
 
 #endif
