@@ -5,17 +5,33 @@ project(fraud_api)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(unofficial-uwebsockets CONFIG REQUIRED)
+option(BUILD_API "Build the fraud API server" ON)
+
+find_package(Boost REQUIRED COMPONENTS iostreams)
 find_package(nlohmann_json CONFIG REQUIRED)
 
-add_executable(fraud_api
-    src/main.cpp
-    src/vectorize.cpp
-    src/vectorSearch.cpp
+if(BUILD_API)
+    find_package(unofficial-uwebsockets CONFIG REQUIRED)
+
+    add_executable(fraud_api
+        src/main.cpp
+        src/vectorize.cpp
+        src/vectorSearch.cpp
+    )
+
+    target_link_libraries(fraud_api
+        PRIVATE
+            unofficial::uwebsockets::uwebsockets
+            nlohmann_json::nlohmann_json
+    )
+endif()
+
+add_executable(preprocess_references
+    src/preProccess.cpp
 )
 
-target_link_libraries(fraud_api
+target_link_libraries(preprocess_references
     PRIVATE
-        unofficial::uwebsockets::uwebsockets
+        Boost::iostreams
         nlohmann_json::nlohmann_json
 )
