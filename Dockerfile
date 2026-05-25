@@ -27,12 +27,15 @@ ENV VCPKG_DISABLE_METRICS=1
 WORKDIR /src
 COPY CMakeLists.txt vcpkg.json ./
 COPY src ./src
+COPY resources ./resources
 
 RUN cmake -S . -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_CXX_COMPILER=clang++ \
         -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
-    && cmake --build build
+    && cmake --build build --target preprocess_references \
+    && ./build/preprocess_references \
+    && cmake --build build --target fraud_api
 
 FROM debian:bookworm-slim AS runtime
 
@@ -43,7 +46,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY resources ./resources
+COPY resources/mcc_risk.json resources/normalization.json ./resources/
+COPY --from=build /src/resources/references.bin ./resources/references.bin
 COPY --from=build /src/build/fraud_api ./fraud_api
 
 EXPOSE 8080
