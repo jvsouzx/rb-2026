@@ -7,6 +7,7 @@
 
 int main(){
     getReferences();
+    getMccRisk();
 
     uWS::App app;
 

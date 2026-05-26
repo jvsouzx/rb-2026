@@ -2,6 +2,7 @@
 
 #include <nlohmann/json.hpp>
 #include <array>
+#include <stdexcept>
 #include <string>
 #include <algorithm>
 #include <fstream>
@@ -9,6 +10,24 @@
 #include <ctime>
 
 using json = nlohmann::json;
+
+const std::unordered_map<std::string, float>& getMccRisk() {
+    static const std::unordered_map<std::string, float> riskMap = []() {
+        std::ifstream file("resources/mcc_risk.json");
+        if (!file) {
+            throw std::runtime_error("Erro ao abrir resources/mcc_risk.json");
+        }
+        json mccRisk = json::parse(file);
+
+        std::unordered_map<std::string, float> map;
+        map.reserve(mccRisk.size());
+        for (auto it = mccRisk.begin(); it != mccRisk.end(); ++it) {
+            map.emplace(it.key(), it.value().get<float>());
+        }
+        return map;
+    }();
+    return riskMap;
+}
 
 namespace {
 
@@ -86,11 +105,11 @@ std::array<float, 14> vectorizeTransaction(std::string_view body) {
     vector[11] = merchantIsKnown ? 0.0f : 1.0f;
 
     std::string merchantMcc = payload["merchant"]["mcc"].get<std::string>();
-    std::ifstream file("resources/mcc_risk.json");
-    json mccRisk = json::parse(file);
+    const auto& mccRisk = getMccRisk();
     float risk = 0.5f;
-    if (mccRisk.contains(merchantMcc)) {
-        risk = mccRisk[merchantMcc].get<float>();
+    auto it = mccRisk.find(merchantMcc);
+    if (it != mccRisk.end()) {
+        risk = it->second;
     }
     vector[12] = risk;
 
