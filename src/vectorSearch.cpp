@@ -31,14 +31,16 @@ ReferenceStore loadBinaryReferences(const std::string& path){
     store.vectors.resize(static_cast<std::size_t>(count) * VectorDimensions);
     store.labels.resize(count);
 
-    for (std::uint32_t i = 0; i < count; ++i) {
-        float* vector = &store.vectors[static_cast<std::size_t>(i) * VectorDimensions];
-        file.read(reinterpret_cast<char*>(vector), sizeof(float) * VectorDimensions);
-        file.read(reinterpret_cast<char*>(&store.labels[i]), sizeof(std::uint8_t));
+    file.read(reinterpret_cast<char*>(store.vectors.data()),
+              sizeof(float) * store.vectors.size());
+    if (!file) {
+        throw std::runtime_error("Erro ao ler vetores binarios em " + path);
+    }
 
-        if (!file) {
-            throw std::runtime_error("Erro ao ler referencia binaria em " + path);
-        }
+    file.read(reinterpret_cast<char*>(store.labels.data()),
+              sizeof(std::uint8_t) * store.labels.size());
+    if (!file) {
+        throw std::runtime_error("Erro ao ler labels binarios em " + path);
     }
 
     std::cout << "Carregadas " << store.count << " referencias binarias\n";

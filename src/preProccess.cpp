@@ -33,12 +33,13 @@ int main() {
 
     for (const auto& item : references) {
         const auto& vector = item["vector"];
-
         for (int i = 0; i < 14; ++i) {
             float value = vector[i].get<float>();
             output.write(reinterpret_cast<const char*>(&value), sizeof(value));
         }
+    }
 
+    for (const auto& item : references) {
         std::string label = item["label"].get<std::string>();
         uint8_t fraud = label == "fraud" ? 1 : 0;
         output.write(reinterpret_cast<const char*>(&fraud), sizeof(fraud));
