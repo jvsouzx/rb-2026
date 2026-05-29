@@ -20,6 +20,10 @@ O que é quantização?
 Porque é útitl?
 Como implementar?
 
+Quantização Linear de float32 para uint8_t com escala 1/254, 255 reservado como sentinela para valores < 0; Diminuiu de 164 MiB para 43 MiB. Antes o references.bin estava sendo carregado e estourando os 150MiB de memória de cada instância da API.
+
+A lógica do cálculo da distância euclidiana agora também é feita com aritmética de inteiros, que é mais rápida.
+
 ## O que é o `mmap`?
 
 `mmap` é uma syscall que associa uma região do endereço de memória virtual de um processo a uma fonte de dados (pode ser um arquivo ou uma memória anônima) de modo que esses endereços virtuais sejam servidos pelo kernel a partir daquela fonte alocando páginas físicas sob demanda.
