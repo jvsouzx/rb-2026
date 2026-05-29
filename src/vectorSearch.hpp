@@ -9,12 +9,12 @@
 
 struct ReferenceStore {
     std::uint32_t count;
-    std::vector<float> vectors;
+    std::vector<uint8_t> vectors;
     std::vector<std::uint8_t> labels;
 };
 
 struct Neighbor {
-    float distance;
+    int distance;
     bool fraud;
 };
 
@@ -29,10 +29,10 @@ struct FraudScoreResult {
     float fraudScore;
 };
 
-std::array<bool, 5> kNearestNeighbor(const std::array<float, 14>& queryVector);
+std::array<bool, 5> kNearestNeighbor(const std::array<std::uint8_t, 14>& queryVector);
 FraudScoreResult transactionIsApproved(const std::array<float, 14>& queryVector);
 const ReferenceStore& getReferences();
 ReferenceStore loadBinaryReferences(const std::string& path);
-float euclideanDistance(const std::array<float, 14>& queryVector, const float* referenceVector);
+int euclideanDistance(const std::array<std::uint8_t, 14>& queryVector, const std::uint8_t* referenceVector);
 
 #endif

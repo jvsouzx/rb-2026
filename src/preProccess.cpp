@@ -5,6 +5,7 @@
 #include <fstream>
 #include <cstdint>
 #include <iostream>
+#include "quantize.hpp"
 
 using json = nlohmann::json;
 
@@ -25,7 +26,7 @@ int main() {
         return 1;
     }
 
-    uint32_t magic = 0x31464252; // "RBF1"
+    uint32_t magic = 0x32464252; // "RBF2"
     uint32_t count = static_cast<uint32_t>(references.size());
 
     output.write(reinterpret_cast<const char*>(&magic), sizeof(magic));
@@ -35,7 +36,8 @@ int main() {
         const auto& vector = item["vector"];
         for (int i = 0; i < 14; ++i) {
             float value = vector[i].get<float>();
-            output.write(reinterpret_cast<const char*>(&value), sizeof(value));
+            uint8_t quantized = quantize(value);
+            output.write(reinterpret_cast<const char*>(&quantized), sizeof(quantized));
         }
     }
 

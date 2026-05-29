@@ -4,9 +4,10 @@
 #include <fstream>
 #include <iostream>
 #include <cmath>
+#include "quantize.hpp"
 
 namespace {
-    constexpr std::uint32_t ReferencesMagic = 0x31464252;
+    constexpr std::uint32_t ReferencesMagic = 0x32464252;
     constexpr int VectorDimensions = 14;
 }
 
@@ -32,7 +33,7 @@ ReferenceStore loadBinaryReferences(const std::string& path){
     store.labels.resize(count);
 
     file.read(reinterpret_cast<char*>(store.vectors.data()),
-              sizeof(float) * store.vectors.size());
+              sizeof(std::uint8_t) * store.vectors.size());
     if (!file) {
         throw std::runtime_error("Erro ao ler vetores binarios em " + path);
     }
@@ -52,16 +53,16 @@ const ReferenceStore& getReferences(){
     return references;
 }
 
-float euclideanDistance(const std::array<float, 14>& queryVector, const float* referenceVector) {
-    float distance = 0.0f;
+int euclideanDistance(const std::array<uint8_t, 14>& queryVector, const uint8_t* referenceVector) {
+    int distance = 0;
     for (int i = 0; i < VectorDimensions; i++){
-        float diff = (referenceVector[i] - queryVector[i]);
+        int diff = static_cast<int>(referenceVector[i]) - static_cast<int>(queryVector[i]);
         distance += diff * diff;
     }
     return distance;
 }
 
-std::array<bool, 5> kNearestNeighbor(const std::array<float, 14>& queryVector){
+std::array<bool, 5> kNearestNeighbor(const std::array<uint8_t, 14>& queryVector){
     // carregar/receber references
     // para cada Reference ref:
     //      distance = euclideanDistance(queryVector, ref.vector)
@@ -72,8 +73,8 @@ std::array<bool, 5> kNearestNeighbor(const std::array<float, 14>& queryVector){
     std::priority_queue<Neighbor, std::vector<Neighbor>, CompareNeighbor> nearest;
 
     for (std::uint32_t i = 0; i < refs.count; ++i){
-        const float* vector = &refs.vectors[static_cast<std::size_t>(i) * VectorDimensions];
-        float distance = euclideanDistance(queryVector, vector);
+        const uint8_t* vector = &refs.vectors[static_cast<std::size_t>(i) * VectorDimensions];
+        int distance = euclideanDistance(queryVector, vector);
         Neighbor candidate{distance, refs.labels[i] == 1};
         if (nearest.size() < 5) {
             nearest.push(candidate);
@@ -93,7 +94,8 @@ std::array<bool, 5> kNearestNeighbor(const std::array<float, 14>& queryVector){
 }
 
 FraudScoreResult transactionIsApproved(const std::array<float, 14>& queryVector){
-    std::array<bool, 5> nearest = kNearestNeighbor(queryVector);
+    std::array<uint8_t, 14> quantQuery = quantizeVector(queryVector);
+    std::array<bool, 5> nearest = kNearestNeighbor(quantQuery);
     int fraudCount = 0;
 
     for (bool isFraud : nearest) {
