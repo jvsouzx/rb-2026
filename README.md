@@ -34,10 +34,38 @@ Quando o processo tenta acessar a memória virtual o hardware (MMU) consulta a t
 
 O mmap é muito útil quando temos por exemplo um arquivo com muitos registros que não são modificados durante a execução mas serão consultados por mais de um processo.
 
+## Como usar `mmap` para leitura em c++?
+
+```
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <unistd.h>
+
+int file_descriptor = open("dados.bin", O_RDONLY);
+struct stat st;
+fstat(file_descriptor, &st);
+size_t len = st.st_size;
+
+const void* addr = mmap(nullptr, len, PROT_READ, MAP_PRIVATE, file_descriptor, 0);
+close(fd);
+if (addr == MAP_FAILED) { /* trata erro */ }
+
+const char* data = static_cast<const char*>(addr);
+// ... use data[0..len-1] ...
+
+munmap(const_cast<void*>(addr), len);
+```
+
+É uma boa prática usar um wrapper RAII (*Resource Acquisition Is Initialization*)
+
+Isso amarra o ciclo de vida de um recurso ao ciclo de vida de um objeto. O recurso é adquirido no construtor e liberado no destrutor.
+
 ## Conteúdos estudados/a estudar
 - Alocação de memória, como processos usam memória, arquitetura de computadores
 - SoA vs AoS
 - Quantização
 - Operações com binários
+- mmap em c++
 
 
