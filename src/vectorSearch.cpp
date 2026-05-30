@@ -1,4 +1,5 @@
 #include "vectorSearch.hpp"
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <stdexcept>
@@ -175,6 +176,32 @@ int euclideanDistance(const std::array<uint8_t, 14>& queryVector, const uint8_t*
         distance += diff * diff;
     }
     return distance;
+}
+
+DistanceValidationResult validateDistanceImplementations(const std::array<std::uint8_t, 14>& queryVector, std::size_t sampleCount) {
+    const ReferenceStore& refs = getReferences();
+    __m128i queryBytes = paddedQueryBytes(queryVector);
+    std::size_t checked = std::min<std::size_t>(sampleCount, refs.count);
+
+    DistanceValidationResult result;
+    result.checked = checked;
+
+    for (std::size_t i = 0; i < checked; ++i) {
+        const std::uint8_t* vector = refs.vectors + i * VectorDimensions;
+        int scalarDistance = euclideanDistance(queryVector, vector);
+        int avx2Distance = euclideanDistanceAvx2(queryBytes, vector);
+
+        if (scalarDistance != avx2Distance) {
+            result.mismatches++;
+            if (result.mismatches == 1) {
+                result.firstMismatchIndex = static_cast<std::uint32_t>(i);
+                result.firstScalarDistance = scalarDistance;
+                result.firstAvx2Distance = avx2Distance;
+            }
+        }
+    }
+
+    return result;
 }
 
 std::array<bool, 5> kNearestNeighbor(const std::array<uint8_t, 14>& queryVector){

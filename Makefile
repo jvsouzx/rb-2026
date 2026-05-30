@@ -9,7 +9,7 @@ CMAKE_CONFIGURE := cmake -S . -B $(BUILD_DIR) -G Ninja \
 	-DCMAKE_BUILD_TYPE=$(BUILD_TYPE) \
 	-DCMAKE_TOOLCHAIN_FILE=$(CMAKE_TOOLCHAIN_FILE)
 
-.PHONY: configure build api preprocess run-api run-preprocess clean
+.PHONY: configure build api preprocess benchmark run-api run-preprocess run-benchmark clean
 
 configure:
 	$(CMAKE_CONFIGURE)
@@ -23,6 +23,9 @@ api: configure
 preprocess: configure
 	cmake --build $(BUILD_DIR) --target preprocess_references
 
+benchmark: configure
+	cmake --build $(BUILD_DIR) --target vector_benchmark
+
 run-api: api
 	./$(BUILD_DIR)/fraud_api
 
@@ -34,6 +37,9 @@ run-preprocess: preprocess
 	else \
 		time ./$(BUILD_DIR)/preprocess_references; \
 	fi
+
+run-benchmark: benchmark
+	./$(BUILD_DIR)/vector_benchmark
 
 clean:
 	cmake -E rm -rf $(BUILD_DIR)

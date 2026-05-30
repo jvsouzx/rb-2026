@@ -37,3 +37,16 @@ target_link_libraries(preprocess_references
         Boost::iostreams
         nlohmann_json::nlohmann_json
 )
+
+add_executable(vector_benchmark
+    src/benchmark.cpp
+    src/vectorize.cpp
+    src/vectorSearch.cpp
+)
+
+target_link_libraries(vector_benchmark
+    PRIVATE
+        nlohmann_json::nlohmann_json
+)
+
+target_compile_options(vector_benchmark PRIVATE -mavx2)
