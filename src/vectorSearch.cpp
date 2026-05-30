@@ -52,6 +52,17 @@ namespace {
 
         return horizontalSum8x32(squares);
     }
+
+    int findWorstNeighborIndex(const std::array<Neighbor, 5>& neighbors) {
+        int worstIndex = 0;
+        for (int i = 1; i < 5; ++i) {
+            if (neighbors[i].distance > neighbors[worstIndex].distance) {
+                worstIndex = i;
+            }
+        }
+
+        return worstIndex;
+    }
 }
 
 ReferenceStore::~ReferenceStore() {
@@ -167,32 +178,31 @@ int euclideanDistance(const std::array<uint8_t, 14>& queryVector, const uint8_t*
 }
 
 std::array<bool, 5> kNearestNeighbor(const std::array<uint8_t, 14>& queryVector){
-    // carregar/receber references
-    // para cada Reference ref:
-    //      distance = euclideanDistance(queryVector, ref.vector)
-    //      se distance estiver entre as 5 menores:
-    //          guardar Neighbor{distance, ref.fraud}
-    // retornar os 5 menores
     const ReferenceStore& refs = getReferences();
-    std::priority_queue<Neighbor, std::vector<Neighbor>, CompareNeighbor> nearest;
+    std::array<Neighbor, 5> nearest{};
     __m128i queryBytes = paddedQueryBytes(queryVector);
 
-    for (std::uint32_t i = 0; i < refs.count; ++i){
+    for (std::uint32_t i = 0; i < 5; ++i) {
         const uint8_t* vector = refs.vectors + static_cast<std::size_t>(i) * VectorDimensions;
         int distance = euclideanDistanceAvx2(queryBytes, vector);
-        Neighbor candidate{distance, refs.labels[i] == 1};
-        if (nearest.size() < 5) {
-            nearest.push(candidate);
-        } else if (candidate.distance < nearest.top().distance) {
-            nearest.pop();
-            nearest.push(candidate);
+        nearest[i] = Neighbor{distance, refs.labels[i] == 1};
+    }
+
+    int worstIndex = findWorstNeighborIndex(nearest);
+
+    for (std::uint32_t i = 5; i < refs.count; ++i){
+        const uint8_t* vector = refs.vectors + static_cast<std::size_t>(i) * VectorDimensions;
+        int distance = euclideanDistanceAvx2(queryBytes, vector);
+
+        if (distance < nearest[worstIndex].distance) {
+            nearest[worstIndex] = Neighbor{distance, refs.labels[i] == 1};
+            worstIndex = findWorstNeighborIndex(nearest);
         }
     }
 
     std::array<bool, 5> result{};
-    for (int i = 4; i >= 0 && !nearest.empty(); i--){
-        result[i] = nearest.top().fraud;
-        nearest.pop();
+    for (int i = 0; i < 5; ++i){
+        result[i] = nearest[i].fraud;
     }
     
     return result;

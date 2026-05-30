@@ -6,7 +6,6 @@
 #include <cstdint>
 #include <vector>
 #include <string>
-#include <queue>
 
 struct ReferenceStore {
     std::uint32_t count = 0;
@@ -28,12 +27,6 @@ struct ReferenceStore {
 struct Neighbor {
     int distance;
     bool fraud;
-};
-
-struct CompareNeighbor {
-    bool operator()(const Neighbor& a, const Neighbor& b) const {
-        return a.distance < b.distance;
-    }
 };
 
 struct FraudScoreResult {
