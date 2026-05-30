@@ -4,6 +4,7 @@
 #include <stdexcept>
 #include <iostream>
 #include <cmath>
+#include <immintrin.h>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -14,6 +15,43 @@ namespace {
     constexpr std::uint32_t ReferencesMagic = 0x32464252;
     constexpr int VectorDimensions = 14;
     constexpr std::size_t HeaderSize = sizeof(std::uint32_t) * 2;
+
+    int horizontalSum8x32(__m256i values) {
+        __m128i low = _mm256_castsi256_si128(values);
+        __m128i high = _mm256_extracti128_si256(values, 1);
+        __m128i sum = _mm_add_epi32(low, high);
+        sum = _mm_hadd_epi32(sum, sum);
+        sum = _mm_hadd_epi32(sum, sum);
+        return _mm_cvtsi128_si32(sum);
+    }
+
+    __m128i paddedQueryBytes(const std::array<std::uint8_t, 14>& queryVector) {
+        alignas(16) std::uint8_t padded[16] = {};
+        std::memcpy(padded, queryVector.data(), queryVector.size());
+        return _mm_load_si128(reinterpret_cast<const __m128i*>(padded));
+    }
+
+    int euclideanDistanceAvx2(__m128i queryBytes, const std::uint8_t* referenceVector) {
+        const __m128i mask = _mm_set_epi8(
+            0, 0,
+            static_cast<char>(0xff), static_cast<char>(0xff),
+            static_cast<char>(0xff), static_cast<char>(0xff),
+            static_cast<char>(0xff), static_cast<char>(0xff),
+            static_cast<char>(0xff), static_cast<char>(0xff),
+            static_cast<char>(0xff), static_cast<char>(0xff),
+            static_cast<char>(0xff), static_cast<char>(0xff),
+            static_cast<char>(0xff), static_cast<char>(0xff));
+
+        __m128i refBytes = _mm_loadu_si128(reinterpret_cast<const __m128i*>(referenceVector));
+        refBytes = _mm_and_si128(refBytes, mask);
+
+        __m256i refWords = _mm256_cvtepu8_epi16(refBytes);
+        __m256i queryWords = _mm256_cvtepu8_epi16(queryBytes);
+        __m256i diff = _mm256_sub_epi16(refWords, queryWords);
+        __m256i squares = _mm256_madd_epi16(diff, diff);
+
+        return horizontalSum8x32(squares);
+    }
 }
 
 ReferenceStore::~ReferenceStore() {
@@ -137,10 +175,11 @@ std::array<bool, 5> kNearestNeighbor(const std::array<uint8_t, 14>& queryVector)
     // retornar os 5 menores
     const ReferenceStore& refs = getReferences();
     std::priority_queue<Neighbor, std::vector<Neighbor>, CompareNeighbor> nearest;
+    __m128i queryBytes = paddedQueryBytes(queryVector);
 
     for (std::uint32_t i = 0; i < refs.count; ++i){
         const uint8_t* vector = refs.vectors + static_cast<std::size_t>(i) * VectorDimensions;
-        int distance = euclideanDistance(queryVector, vector);
+        int distance = euclideanDistanceAvx2(queryBytes, vector);
         Neighbor candidate{distance, refs.labels[i] == 1};
         if (nearest.size() < 5) {
             nearest.push(candidate);

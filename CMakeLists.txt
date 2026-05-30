@@ -24,6 +24,8 @@ if(BUILD_API)
             unofficial::uwebsockets::uwebsockets
             nlohmann_json::nlohmann_json
     )
+
+    target_compile_options(fraud_api PRIVATE -mavx2)
 endif()
 
 add_executable(preprocess_references
