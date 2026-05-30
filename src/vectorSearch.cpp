@@ -1,48 +1,114 @@
 #include "vectorSearch.hpp"
 #include <cstdint>
+#include <cstring>
 #include <stdexcept>
-#include <fstream>
 #include <iostream>
 #include <cmath>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include "quantize.hpp"
 
 namespace {
     constexpr std::uint32_t ReferencesMagic = 0x32464252;
     constexpr int VectorDimensions = 14;
+    constexpr std::size_t HeaderSize = sizeof(std::uint32_t) * 2;
 }
 
-ReferenceStore loadBinaryReferences(const std::string& path){
-    std::ifstream file(path, std::ios::binary);
-    if (!file) {
+ReferenceStore::~ReferenceStore() {
+    if (mappedData != nullptr && mappedSize > 0) {
+        munmap(const_cast<std::uint8_t*>(mappedData), mappedSize);
+    }
+}
+
+ReferenceStore::ReferenceStore(ReferenceStore&& other) noexcept
+    : count(other.count),
+      mappedSize(other.mappedSize),
+      mappedData(other.mappedData),
+      vectors(other.vectors),
+      labels(other.labels) {
+    other.count = 0;
+    other.mappedSize = 0;
+    other.mappedData = nullptr;
+    other.vectors = nullptr;
+    other.labels = nullptr;
+}
+
+ReferenceStore& ReferenceStore::operator=(ReferenceStore&& other) noexcept {
+    if (this != &other) {
+        if (mappedData != nullptr && mappedSize > 0) {
+            munmap(const_cast<std::uint8_t*>(mappedData), mappedSize);
+        }
+
+        count = other.count;
+        mappedSize = other.mappedSize;
+        mappedData = other.mappedData;
+        vectors = other.vectors;
+        labels = other.labels;
+
+        other.count = 0;
+        other.mappedSize = 0;
+        other.mappedData = nullptr;
+        other.vectors = nullptr;
+        other.labels = nullptr;
+    }
+
+    return *this;
+}
+
+ReferenceStore loadBinaryReferences(const std::string& path) {
+    int fd = open(path.c_str(), O_RDONLY);
+    if (fd == -1) {
         throw std::runtime_error("Erro ao abrir " + path);
     }
 
+    struct stat fileStat {};
+    if (fstat(fd, &fileStat) == -1) {
+        close(fd);
+        throw std::runtime_error("Erro ao obter tamanho de " + path);
+    }
+
+    if (fileStat.st_size < static_cast<off_t>(HeaderSize)) {
+        close(fd);
+        throw std::runtime_error("Arquivo de referencias binario muito pequeno: " + path);
+    }
+
+    std::size_t mappedSize = static_cast<std::size_t>(fileStat.st_size);
+    void* mapping = mmap(nullptr, mappedSize, PROT_READ, MAP_PRIVATE, fd, 0);
+    close(fd);
+
+    if (mapping == MAP_FAILED) {
+        throw std::runtime_error("Erro ao mapear " + path);
+    }
+
+    const auto* data = static_cast<const std::uint8_t*>(mapping);
+
     std::uint32_t magic = 0;
     std::uint32_t count = 0;
+    std::memcpy(&magic, data, sizeof(magic));
+    std::memcpy(&count, data + sizeof(magic), sizeof(count));
 
-    file.read(reinterpret_cast<char*>(&magic), sizeof(magic));
-    file.read(reinterpret_cast<char*>(&count), sizeof(count));
-
-    if (!file || magic != ReferencesMagic) {
+    if (magic != ReferencesMagic) {
+        munmap(mapping, mappedSize);
         throw std::runtime_error("Arquivo de referencias binario invalido: " + path);
+    }
+
+    std::size_t vectorsSize = static_cast<std::size_t>(count) * VectorDimensions;
+    std::size_t labelsSize = count;
+    std::size_t expectedSize = HeaderSize + vectorsSize + labelsSize;
+
+    if (mappedSize != expectedSize) {
+        munmap(mapping, mappedSize);
+        throw std::runtime_error("Tamanho inesperado do arquivo de referencias: " + path);
     }
 
     ReferenceStore store;
     store.count = count;
-    store.vectors.resize(static_cast<std::size_t>(count) * VectorDimensions);
-    store.labels.resize(count);
-
-    file.read(reinterpret_cast<char*>(store.vectors.data()),
-              sizeof(std::uint8_t) * store.vectors.size());
-    if (!file) {
-        throw std::runtime_error("Erro ao ler vetores binarios em " + path);
-    }
-
-    file.read(reinterpret_cast<char*>(store.labels.data()),
-              sizeof(std::uint8_t) * store.labels.size());
-    if (!file) {
-        throw std::runtime_error("Erro ao ler labels binarios em " + path);
-    }
+    store.mappedSize = mappedSize;
+    store.mappedData = data;
+    store.vectors = data + HeaderSize;
+    store.labels = store.vectors + vectorsSize;
 
     std::cout << "Carregadas " << store.count << " referencias binarias\n";
     return store;
@@ -73,7 +139,7 @@ std::array<bool, 5> kNearestNeighbor(const std::array<uint8_t, 14>& queryVector)
     std::priority_queue<Neighbor, std::vector<Neighbor>, CompareNeighbor> nearest;
 
     for (std::uint32_t i = 0; i < refs.count; ++i){
-        const uint8_t* vector = &refs.vectors[static_cast<std::size_t>(i) * VectorDimensions];
+        const uint8_t* vector = refs.vectors + static_cast<std::size_t>(i) * VectorDimensions;
         int distance = euclideanDistance(queryVector, vector);
         Neighbor candidate{distance, refs.labels[i] == 1};
         if (nearest.size() < 5) {

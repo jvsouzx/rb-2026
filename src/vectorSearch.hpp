@@ -2,15 +2,27 @@
 #define VECTORSEARCH_HPP
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 #include <string>
 #include <queue>
 
 struct ReferenceStore {
-    std::uint32_t count;
-    std::vector<uint8_t> vectors;
-    std::vector<std::uint8_t> labels;
+    std::uint32_t count = 0;
+    std::size_t mappedSize = 0;
+    const std::uint8_t* mappedData = nullptr;
+    const std::uint8_t* vectors = nullptr;
+    const std::uint8_t* labels = nullptr;
+
+    ReferenceStore() = default;
+    ~ReferenceStore();
+
+    ReferenceStore(const ReferenceStore&) = delete;
+    ReferenceStore& operator=(const ReferenceStore&) = delete;
+
+    ReferenceStore(ReferenceStore&& other) noexcept;
+    ReferenceStore& operator=(ReferenceStore&& other) noexcept;
 };
 
 struct Neighbor {
