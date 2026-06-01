@@ -18,6 +18,10 @@ services:
 
   app1:
     image: ghcr.io/jvsouzx/rb-2026-buckets:0.0.1
+    environment:
+      RB_BUCKET_MAX_RADIUS: "0"
+      RB_BUCKET_FALLBACK_RADIUS: "0"
+      RB_BUCKET_MIN_CANDIDATES: "1000"
     networks:
       - lb-net
     deploy:
@@ -28,6 +32,10 @@ services:
 
   app2:
     image: ghcr.io/jvsouzx/rb-2026-buckets:0.0.1
+    environment:
+      RB_BUCKET_MAX_RADIUS: "0"
+      RB_BUCKET_FALLBACK_RADIUS: "0"
+      RB_BUCKET_MIN_CANDIDATES: "1000"
     networks:
       - lb-net
     deploy:
