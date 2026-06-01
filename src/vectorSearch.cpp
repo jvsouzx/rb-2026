@@ -20,7 +20,7 @@ namespace {
     constexpr std::size_t HeaderSize = sizeof(std::uint32_t) * 2;
     constexpr int CoarseBucketShift = 5;
     constexpr int CoarseBucketCount = 8;
-    constexpr int FlagBits = 3;
+    constexpr int FlagBits = 1;
     constexpr int TotalBucketBits = (3 * 6) + FlagBits;
     constexpr int BucketCount = 1 << TotalBucketBits;
     thread_local SearchStats lastSearchStats;
@@ -64,14 +64,8 @@ namespace {
 
     BucketKey makeBucketKey(const std::uint8_t* vector) {
         int flags = 0;
-        if (vector[9] > 127) {
-            flags |= 1 << 0;
-        }
-        if (vector[10] > 127) {
-            flags |= 1 << 1;
-        }
         if (vector[11] > 127) {
-            flags |= 1 << 2;
+            flags |= 1 << 0;
         }
 
         return BucketKey{
