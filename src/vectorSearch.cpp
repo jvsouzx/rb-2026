@@ -27,7 +27,7 @@ namespace {
 
     struct BucketKey {
         int amount;
-        int amountVsAvg;
+        int installments;
         int hourOfDay;
         int kmFromHome;
         int txCount24h;
@@ -76,7 +76,7 @@ namespace {
 
         return BucketKey{
             static_cast<int>(vector[0] >> CoarseBucketShift),
-            static_cast<int>(vector[2] >> CoarseBucketShift),
+            static_cast<int>(vector[1] >> CoarseBucketShift),
             static_cast<int>(vector[3] >> CoarseBucketShift),
             static_cast<int>(vector[7] >> CoarseBucketShift),
             static_cast<int>(vector[8] >> CoarseBucketShift),
@@ -91,7 +91,7 @@ namespace {
 
     int bucketIndex(const BucketKey& key) {
         return key.amount
-            | (key.amountVsAvg << 3)
+            | (key.installments << 3)
             | (key.hourOfDay << 6)
             | (key.kmFromHome << 9)
             | (key.txCount24h << 12)
@@ -364,18 +364,18 @@ std::array<bool, 5> kNearestNeighbor(const std::array<uint8_t, 14>& queryVector)
     int maxRadius = bucketMaxRadius();
     for (int radius = 0; radius <= maxRadius; ++radius) {
         for (int amountDelta = -radius; amountDelta <= radius; ++amountDelta) {
-            for (int amountVsAvgDelta = -radius; amountVsAvgDelta <= radius; ++amountVsAvgDelta) {
+            for (int installmentsDelta = -radius; installmentsDelta <= radius; ++installmentsDelta) {
                 for (int hourDelta = -radius; hourDelta <= radius; ++hourDelta) {
                     for (int kmDelta = -radius; kmDelta <= radius; ++kmDelta) {
                         for (int txDelta = -radius; txDelta <= radius; ++txDelta) {
                             for (int mccDelta = -radius; mccDelta <= radius; ++mccDelta) {
-                                if (std::max({std::abs(amountDelta), std::abs(amountVsAvgDelta), std::abs(hourDelta), std::abs(kmDelta), std::abs(txDelta), std::abs(mccDelta)}) != radius) {
+                                if (std::max({std::abs(amountDelta), std::abs(installmentsDelta), std::abs(hourDelta), std::abs(kmDelta), std::abs(txDelta), std::abs(mccDelta)}) != radius) {
                                     continue;
                                 }
 
                                 BucketKey candidateKey{
                                     queryBucket.amount + amountDelta,
-                                    queryBucket.amountVsAvg + amountVsAvgDelta,
+                                    queryBucket.installments + installmentsDelta,
                                     queryBucket.hourOfDay + hourDelta,
                                     queryBucket.kmFromHome + kmDelta,
                                     queryBucket.txCount24h + txDelta,
@@ -384,7 +384,7 @@ std::array<bool, 5> kNearestNeighbor(const std::array<uint8_t, 14>& queryVector)
                                 };
 
                                 if (!validBucketValue(candidateKey.amount)
-                                    || !validBucketValue(candidateKey.amountVsAvg)
+                                    || !validBucketValue(candidateKey.installments)
                                     || !validBucketValue(candidateKey.hourOfDay)
                                     || !validBucketValue(candidateKey.kmFromHome)
                                     || !validBucketValue(candidateKey.txCount24h)
