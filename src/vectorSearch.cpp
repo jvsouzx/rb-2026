@@ -2,9 +2,11 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
+#include <cstdlib>
 #include <stdexcept>
 #include <iostream>
 #include <cmath>
+#include <utility>
 #include <immintrin.h>
 #include <fcntl.h>
 #include <sys/mman.h>
@@ -16,6 +18,86 @@ namespace {
     constexpr std::uint32_t ReferencesMagic = 0x32464252;
     constexpr int VectorDimensions = 14;
     constexpr std::size_t HeaderSize = sizeof(std::uint32_t) * 2;
+    constexpr int CoarseBucketShift = 5;
+    constexpr int CoarseBucketCount = 8;
+    constexpr int FlagBits = 3;
+    constexpr int TotalBucketBits = (3 * 6) + FlagBits;
+    constexpr int BucketCount = 1 << TotalBucketBits;
+    thread_local SearchStats lastSearchStats;
+
+    struct BucketKey {
+        int amount;
+        int amountVsAvg;
+        int hourOfDay;
+        int kmFromHome;
+        int txCount24h;
+        int mccRisk;
+        int flags;
+    };
+
+    int readIntEnv(const char* name, int fallback) {
+        const char* value = std::getenv(name);
+        if (value == nullptr) {
+            return fallback;
+        }
+
+        try {
+            return std::stoi(value);
+        } catch (...) {
+            return fallback;
+        }
+    }
+
+    int bucketMaxRadius() {
+        static const int value = std::clamp(readIntEnv("RB_BUCKET_MAX_RADIUS", 1), 0, CoarseBucketCount - 1);
+        return value;
+    }
+
+    std::size_t bucketMinCandidates() {
+        static const int value = std::max(5, readIntEnv("RB_BUCKET_MIN_CANDIDATES", 5000));
+        return static_cast<std::size_t>(value);
+    }
+
+    bool validBucketValue(int value) {
+        return value >= 0 && value < CoarseBucketCount;
+    }
+
+    BucketKey makeBucketKey(const std::uint8_t* vector) {
+        int flags = 0;
+        if (vector[9] > 127) {
+            flags |= 1 << 0;
+        }
+        if (vector[10] > 127) {
+            flags |= 1 << 1;
+        }
+        if (vector[11] > 127) {
+            flags |= 1 << 2;
+        }
+
+        return BucketKey{
+            static_cast<int>(vector[0] >> CoarseBucketShift),
+            static_cast<int>(vector[2] >> CoarseBucketShift),
+            static_cast<int>(vector[3] >> CoarseBucketShift),
+            static_cast<int>(vector[7] >> CoarseBucketShift),
+            static_cast<int>(vector[8] >> CoarseBucketShift),
+            static_cast<int>(vector[12] >> CoarseBucketShift),
+            flags
+        };
+    }
+
+    BucketKey makeBucketKey(const std::array<std::uint8_t, 14>& vector) {
+        return makeBucketKey(vector.data());
+    }
+
+    int bucketIndex(const BucketKey& key) {
+        return key.amount
+            | (key.amountVsAvg << 3)
+            | (key.hourOfDay << 6)
+            | (key.kmFromHome << 9)
+            | (key.txCount24h << 12)
+            | (key.mccRisk << 15)
+            | (key.flags << 18);
+    }
 
     int horizontalSum8x32(__m256i values) {
         __m128i low = _mm256_castsi256_si128(values);
@@ -64,6 +146,48 @@ namespace {
 
         return worstIndex;
     }
+
+    void updateTop5(std::array<Neighbor, 5>& nearest, int& nearestSize, int& worstIndex, Neighbor candidate) {
+        if (nearestSize < 5) {
+            nearest[nearestSize] = candidate;
+            nearestSize++;
+            if (nearestSize == 5) {
+                worstIndex = findWorstNeighborIndex(nearest);
+            }
+            return;
+        }
+
+        if (candidate.distance < nearest[worstIndex].distance) {
+            nearest[worstIndex] = candidate;
+            worstIndex = findWorstNeighborIndex(nearest);
+        }
+    }
+
+    void buildBucketIndex(ReferenceStore& store) {
+        store.bucketOffsets.assign(BucketCount + 1, 0);
+
+        for (std::uint32_t i = 0; i < store.count; ++i) {
+            const std::uint8_t* vector = store.vectors + static_cast<std::size_t>(i) * VectorDimensions;
+            int bucket = bucketIndex(makeBucketKey(vector));
+            store.bucketOffsets[bucket + 1]++;
+        }
+
+        for (int i = 1; i <= BucketCount; ++i) {
+            store.bucketOffsets[i] += store.bucketOffsets[i - 1];
+        }
+
+        store.bucketIds.resize(store.count);
+        std::vector<std::uint32_t> writePositions = store.bucketOffsets;
+
+        for (std::uint32_t i = 0; i < store.count; ++i) {
+            const std::uint8_t* vector = store.vectors + static_cast<std::size_t>(i) * VectorDimensions;
+            int bucket = bucketIndex(makeBucketKey(vector));
+            std::uint32_t position = writePositions[bucket]++;
+            store.bucketIds[position] = i;
+        }
+
+        std::cout << "Indice de buckets criado com " << BucketCount << " buckets\n";
+    }
 }
 
 ReferenceStore::~ReferenceStore() {
@@ -77,7 +201,9 @@ ReferenceStore::ReferenceStore(ReferenceStore&& other) noexcept
       mappedSize(other.mappedSize),
       mappedData(other.mappedData),
       vectors(other.vectors),
-      labels(other.labels) {
+      labels(other.labels),
+      bucketOffsets(std::move(other.bucketOffsets)),
+      bucketIds(std::move(other.bucketIds)) {
     other.count = 0;
     other.mappedSize = 0;
     other.mappedData = nullptr;
@@ -96,6 +222,8 @@ ReferenceStore& ReferenceStore::operator=(ReferenceStore&& other) noexcept {
         mappedData = other.mappedData;
         vectors = other.vectors;
         labels = other.labels;
+        bucketOffsets = std::move(other.bucketOffsets);
+        bucketIds = std::move(other.bucketIds);
 
         other.count = 0;
         other.mappedSize = 0;
@@ -159,6 +287,7 @@ ReferenceStore loadBinaryReferences(const std::string& path) {
     store.mappedData = data;
     store.vectors = data + HeaderSize;
     store.labels = store.vectors + vectorsSize;
+    buildBucketIndex(store);
 
     std::cout << "Carregadas " << store.count << " referencias binarias\n";
     return store;
@@ -176,6 +305,10 @@ int euclideanDistance(const std::array<uint8_t, 14>& queryVector, const uint8_t*
         distance += diff * diff;
     }
     return distance;
+}
+
+SearchStats getLastSearchStats() {
+    return lastSearchStats;
 }
 
 DistanceValidationResult validateDistanceImplementations(const std::array<std::uint8_t, 14>& queryVector, std::size_t sampleCount) {
@@ -207,28 +340,83 @@ DistanceValidationResult validateDistanceImplementations(const std::array<std::u
 std::array<bool, 5> kNearestNeighbor(const std::array<uint8_t, 14>& queryVector){
     const ReferenceStore& refs = getReferences();
     std::array<Neighbor, 5> nearest{};
+    int nearestSize = 0;
+    int worstIndex = 0;
     __m128i queryBytes = paddedQueryBytes(queryVector);
+    BucketKey queryBucket = makeBucketKey(queryVector);
+    SearchStats stats;
 
-    for (std::uint32_t i = 0; i < 5; ++i) {
-        const uint8_t* vector = refs.vectors + static_cast<std::size_t>(i) * VectorDimensions;
+    auto scanReference = [&](std::uint32_t id) {
+        const uint8_t* vector = refs.vectors + static_cast<std::size_t>(id) * VectorDimensions;
         int distance = euclideanDistanceAvx2(queryBytes, vector);
-        nearest[i] = Neighbor{distance, refs.labels[i] == 1};
-    }
+        updateTop5(nearest, nearestSize, worstIndex, Neighbor{distance, refs.labels[id] == 1});
+        stats.candidatesScanned++;
+    };
 
-    int worstIndex = findWorstNeighborIndex(nearest);
+    auto scanBucket = [&](int bucket) {
+        std::uint32_t begin = refs.bucketOffsets[bucket];
+        std::uint32_t end = refs.bucketOffsets[bucket + 1];
+        for (std::uint32_t pos = begin; pos < end; ++pos) {
+            scanReference(refs.bucketIds[pos]);
+        }
+    };
 
-    for (std::uint32_t i = 5; i < refs.count; ++i){
-        const uint8_t* vector = refs.vectors + static_cast<std::size_t>(i) * VectorDimensions;
-        int distance = euclideanDistanceAvx2(queryBytes, vector);
+    int maxRadius = bucketMaxRadius();
+    for (int radius = 0; radius <= maxRadius; ++radius) {
+        for (int amountDelta = -radius; amountDelta <= radius; ++amountDelta) {
+            for (int amountVsAvgDelta = -radius; amountVsAvgDelta <= radius; ++amountVsAvgDelta) {
+                for (int hourDelta = -radius; hourDelta <= radius; ++hourDelta) {
+                    for (int kmDelta = -radius; kmDelta <= radius; ++kmDelta) {
+                        for (int txDelta = -radius; txDelta <= radius; ++txDelta) {
+                            for (int mccDelta = -radius; mccDelta <= radius; ++mccDelta) {
+                                if (std::max({std::abs(amountDelta), std::abs(amountVsAvgDelta), std::abs(hourDelta), std::abs(kmDelta), std::abs(txDelta), std::abs(mccDelta)}) != radius) {
+                                    continue;
+                                }
 
-        if (distance < nearest[worstIndex].distance) {
-            nearest[worstIndex] = Neighbor{distance, refs.labels[i] == 1};
-            worstIndex = findWorstNeighborIndex(nearest);
+                                BucketKey candidateKey{
+                                    queryBucket.amount + amountDelta,
+                                    queryBucket.amountVsAvg + amountVsAvgDelta,
+                                    queryBucket.hourOfDay + hourDelta,
+                                    queryBucket.kmFromHome + kmDelta,
+                                    queryBucket.txCount24h + txDelta,
+                                    queryBucket.mccRisk + mccDelta,
+                                    queryBucket.flags
+                                };
+
+                                if (!validBucketValue(candidateKey.amount)
+                                    || !validBucketValue(candidateKey.amountVsAvg)
+                                    || !validBucketValue(candidateKey.hourOfDay)
+                                    || !validBucketValue(candidateKey.kmFromHome)
+                                    || !validBucketValue(candidateKey.txCount24h)
+                                    || !validBucketValue(candidateKey.mccRisk)) {
+                                    continue;
+                                }
+
+                                scanBucket(bucketIndex(candidateKey));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        stats.radiusUsed = radius;
+        if (nearestSize == 5 && stats.candidatesScanned >= bucketMinCandidates()) {
+            break;
         }
     }
 
+    if (nearestSize < 5) {
+        stats.bruteForceFallback = true;
+        for (std::uint32_t i = 0; i < refs.count; ++i) {
+            scanReference(i);
+        }
+    }
+
+    lastSearchStats = stats;
+
     std::array<bool, 5> result{};
-    for (int i = 0; i < 5; ++i){
+    for (int i = 0; i < nearestSize; ++i){
         result[i] = nearest[i].fraud;
     }
     

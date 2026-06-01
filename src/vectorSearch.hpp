@@ -13,6 +13,8 @@ struct ReferenceStore {
     const std::uint8_t* mappedData = nullptr;
     const std::uint8_t* vectors = nullptr;
     const std::uint8_t* labels = nullptr;
+    std::vector<std::uint32_t> bucketOffsets;
+    std::vector<std::uint32_t> bucketIds;
 
     ReferenceStore() = default;
     ~ReferenceStore();
@@ -42,11 +44,18 @@ struct DistanceValidationResult {
     int firstAvx2Distance = 0;
 };
 
+struct SearchStats {
+    std::size_t candidatesScanned = 0;
+    int radiusUsed = 0;
+    bool bruteForceFallback = false;
+};
+
 std::array<bool, 5> kNearestNeighbor(const std::array<std::uint8_t, 14>& queryVector);
 FraudScoreResult transactionIsApproved(const std::array<float, 14>& queryVector);
 const ReferenceStore& getReferences();
 ReferenceStore loadBinaryReferences(const std::string& path);
 int euclideanDistance(const std::array<std::uint8_t, 14>& queryVector, const std::uint8_t* referenceVector);
 DistanceValidationResult validateDistanceImplementations(const std::array<std::uint8_t, 14>& queryVector, std::size_t sampleCount);
+SearchStats getLastSearchStats();
 
 #endif

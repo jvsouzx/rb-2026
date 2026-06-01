@@ -7,10 +7,12 @@
 #include <chrono>
 #include <algorithm>
 #include <cstdlib>
+#include <cmath>
 #include <fstream>
 #include <iostream>
 #include <limits>
 #include <string>
+#include <vector>
 
 using json = nlohmann::json;
 
@@ -30,6 +32,17 @@ namespace {
 
     double toMilliseconds(std::chrono::steady_clock::duration duration) {
         return std::chrono::duration<double, std::milli>(duration).count();
+    }
+
+    double percentile(const std::vector<double>& sortedValues, double percentile) {
+        if (sortedValues.empty()) {
+            return 0.0;
+        }
+
+        std::size_t index = static_cast<std::size_t>(
+            std::ceil((percentile / 100.0) * sortedValues.size())) - 1;
+
+        return sortedValues[std::min(index, sortedValues.size() - 1)];
     }
 }
 
@@ -68,6 +81,12 @@ int main() {
     double minMs = std::numeric_limits<double>::max();
     double maxMs = 0.0;
     int denied = 0;
+    std::vector<double> durationsMs;
+    std::vector<double> candidatesScanned;
+    durationsMs.reserve(requests);
+    candidatesScanned.reserve(requests);
+    int bruteForceFallbacks = 0;
+    int maxRadiusUsed = 0;
 
     for (std::size_t i = 0; i < requests; ++i) {
         std::array<float, 14> vector = vectorizeTransaction(payloads[i].dump());
@@ -80,17 +99,37 @@ int main() {
         totalMs += elapsedMs;
         minMs = std::min(minMs, elapsedMs);
         maxMs = std::max(maxMs, elapsedMs);
+        durationsMs.push_back(elapsedMs);
 
         if (!result.approved) {
             denied++;
         }
+
+        SearchStats stats = getLastSearchStats();
+        candidatesScanned.push_back(static_cast<double>(stats.candidatesScanned));
+        if (stats.bruteForceFallback) {
+            bruteForceFallbacks++;
+        }
+        maxRadiusUsed = std::max(maxRadiusUsed, stats.radiusUsed);
     }
+
+    std::sort(durationsMs.begin(), durationsMs.end());
+    std::sort(candidatesScanned.begin(), candidatesScanned.end());
 
     std::cout << "requests=" << requests << "\n";
     std::cout << "denied=" << denied << "\n";
     std::cout << "knn_avg_ms=" << (totalMs / requests) << "\n";
     std::cout << "knn_min_ms=" << minMs << "\n";
+    std::cout << "knn_p50_ms=" << percentile(durationsMs, 50) << "\n";
+    std::cout << "knn_p90_ms=" << percentile(durationsMs, 90) << "\n";
+    std::cout << "knn_p95_ms=" << percentile(durationsMs, 95) << "\n";
+    std::cout << "knn_p99_ms=" << percentile(durationsMs, 99) << "\n";
     std::cout << "knn_max_ms=" << maxMs << "\n";
+    std::cout << "candidate_p50=" << percentile(candidatesScanned, 50) << "\n";
+    std::cout << "candidate_p90=" << percentile(candidatesScanned, 90) << "\n";
+    std::cout << "candidate_p99=" << percentile(candidatesScanned, 99) << "\n";
+    std::cout << "max_radius_used=" << maxRadiusUsed << "\n";
+    std::cout << "brute_force_fallbacks=" << bruteForceFallbacks << "\n";
 
     return 0;
 }
